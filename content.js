@@ -40,11 +40,9 @@ function chessDotComToFEN(boardHTML) {
         }
     }
     
-    const isWhiteTurn = document.querySelector('.clock-bottom')?.classList.contains('clock-player-turn') ?? true;
-    fen += isWhiteTurn ? ' w ' : ' b ';
-    fen += 'KQkq - 0 1';
-    
-    return fen;
+    blackFen = fen + ' b KQkq - 0 1';
+    whiteFen = fen + ' w KQkq - 0 1';
+    return [whiteFen, blackFen];
 }
 
 async function analyzeChessPosition(fen, depth) {
@@ -80,15 +78,22 @@ async function analyzeChessPosition(fen, depth) {
     }
 }
 
-async function example(fen) {
+async function example(wfen, bfen) {
     try {
-        const startingPosition = fen;
+        const startingPosition = wfen;
+        console.log(startingPosition);
         const result = await analyzeChessPosition(startingPosition, 14);
-        resultParagraph.innerHTML = result.bestMove;
+        resultParagraph.innerHTML = "W: " + result.bestMove;
+
+        const startingPosition2 = bfen;
+        const result2 = await analyzeChessPosition(startingPosition2, 14);
+        resultParagraph.innerHTML += "<br>B: " + result2.bestMove;
+
         console.log('Best move:', result.bestMove);
         console.log('Evaluation:', result.evaluation.score);
     } catch (error) {
         console.error('Analysis failed:', error);
+        resultParagraph.innerHTML = "Error";
     }
 }
 
@@ -118,21 +123,23 @@ resultParagraph.style.cssText = `
     z-index: 9999;
     padding: 2px 5px;
     background-color: #2f2f2f;
-    color: white;
+    color: red;
     border: none;
     border-radius: 5px;
     cursor: pointer;
     font-family: Arial, sans-serif;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    font-size: 7px !important;
+    font-size: 15px !important;
     opacity: 0.5;
 `;
 
 button.addEventListener('click', async () => {
     try {
         const boardHTML = document.querySelector('.board-layout-chessboard').innerHTML;
-        const fen = chessDotComToFEN(boardHTML);
-        example(fen);
+        const fens = chessDotComToFEN(boardHTML);
+        const wFen = fens[0];
+        const bFen = fens[1];
+        example(wFen, bFen);
         //await navigator.clipboard.writeText(fen);
         const originalText = button.textContent;
         button.textContent = 'Analyzing';
