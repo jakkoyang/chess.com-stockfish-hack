@@ -1739,15 +1739,74 @@ var Chess = function(fen) {
     }
   }
   
-  /* export Chess object if using node or any other CommonJS compatible
-   * environment */
-  if (typeof exports !== 'undefined') exports.Chess = Chess
-  /* export Chess object for any RequireJS compatible environment */
-  if (typeof define !== 'undefined')
-    define(function() {
-      return Chess
-    })
-  
+/* export Chess object if using node or any other CommonJS compatible
+  * environment */
+if (typeof exports !== 'undefined') exports.Chess = Chess
+/* export Chess object for any RequireJS compatible environment */
+if (typeof define !== 'undefined')
+  define(function() {
+    return Chess
+  })
+
+  async function generateContent(apiKey, prompt) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    const requestBody = {
+        contents: [
+            {
+                role: "user",
+                parts: [
+                    {
+                        text: prompt
+                    }
+                ]
+            }
+        ],
+        generationConfig: {
+            temperature: 1,
+            topK: 64,
+            topP: 0.95,
+            maxOutputTokens: 8192,
+            responseMimeType: "text/plain"
+        }
+    };
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.candidates[0].content.parts[0].text;
+    } catch (error) {
+        console.error('Error:', error);
+        throw error;
+    }
+}
+  // Example usage:
+async function smartEval(prompt, gameAnalysis=false) {
+    const API_KEY = 'AIzaSyBvhnPpDKA407ovOl7Ik45BoNraNNOZwF4';
+    try {
+        const result = await generateContent(API_KEY, prompt);
+        console.log('Response:', result);
+        if (gameAnalysis){
+          alert(`This move is better bc: ${result}`)
+        }
+        else {
+          resultExtraInfo.innerHTML += `Smart Eval: ${result}`;
+        }
+    } catch (error) {
+        console.error('Failed to generate content:', error);
+    }
+}
 
 function parseMoveList(moveListHTML) {
     const moves = [];
@@ -1783,16 +1842,54 @@ function parseMoveList(moveListHTML) {
     return moves;
 }
 
-function getFENFromMoves(moves) {
+function getFENFromMoves(moves, gameAnalysis=false) {
     const chess = new Chess();
-    moves.forEach(move => {
-        try {
-            chess.move(move, { sloppy: true });
-        } catch (error) {
-            console.error(`Invalid move: ${move}`, error);
-        }
-    });
-    return chess.fen();
+
+    if (gameAnalysis){
+        smartGameEvaluation.innerHTML = "";
+        i = 0;
+        moves.forEach(move => {
+          try {
+              console.log(move);
+              chess.move(move, { sloppy: true});
+              const currentFen = chess.fen();
+              let moveDiv = document.createElement("div");
+
+              moveDiv.innerHTML = `${i}: ${move.toString()}`;
+              moveDiv.fen = currentFen;
+              moveDiv.move = move.toString();
+              moveDiv.i = i.toString();
+              moveDiv.style.cssText = 'cursor: pointer';
+              
+              moveDiv.addEventListener("click",  async () => {
+                //smartEval("", true);
+                //console.log("Button clicked!");
+                moveDiv.innerHTML = `${moveDiv.i}: ${moveDiv.move} Loading...`;
+                result = await analyzeChessPosition(moveDiv.fen, 12);
+                moveDiv.innerHTML = `${moveDiv.i}: ${moveDiv.move}<br>FEN: ${moveDiv.fen}<br>Best Move: ${result.bestMove.split(" ")[1]}<br>Eval: ${result.evaluation.score}`;
+                moveDiv.style = "color: green";
+                smartEval(`given this chess position ${moveDiv.fen} give me a short summary as to why ${result.bestMove.split(" ")[1]} was a better move than ${moveDiv.move}, MAKE THE SUMMARY UNDER 30 WORDS`, true);
+              });
+
+              smartGameEvaluation.appendChild(moveDiv);
+              i += 1
+          } catch (error) {
+              console.error(`Invalid move: ${move}`, error);
+          }
+        });
+
+    }
+
+    else{
+      moves.forEach(move => {
+          try {
+              chess.move(move, { sloppy: true });
+          } catch (error) {
+              console.error(`Invalid move: ${move}`, error);
+          }
+      });
+    }
+    return chess;
 }
 
 async function analyzeChessPosition(fen, depth) {
@@ -1820,6 +1917,7 @@ async function analyzeChessPosition(fen, depth) {
             evaluation: {
                 score: data.evaluation,
                 isMate: data.mate,
+                continuation: data.continuation
             }
         };
     } catch (error) {
@@ -1836,20 +1934,35 @@ async function analyzeMoveList() {
         }
 
         const moves = parseMoveList(moveListContainer.innerHTML);
-        const fen = getFENFromMoves(moves);
+        const chess = getFENFromMoves(moves);
+        const fen = chess.fen();
         console.log('Current FEN:', fen);
-        
         const result = await analyzeChessPosition(fen, 14);
-        resultParagraph.innerHTML = `Best move: ${result.bestMove}<br>Score: ${result.evaluation.score}`;
+        smartEval(`given this chess position ${fen} give me a short summary as to why is ${result.bestMove.split(" ")[1]} best move, MAKE THE SUMMARY UNDER 30 WORDS`)
+        resultParagraph.innerHTML = `Best move: ${result.bestMove.split(" ")[1]}`;
+        resultExtraInfo.innerHTML = `
+        Best move: ${result.bestMove}<br><br>
+        Mate: ${result.evaluation.isMate}<br><br>
+        Continuation: ${result.evaluation.continuation}<br><br>
+        Board: <pre>${chess.ascii()}</pre>
+        Eval: ${result.evaluation.score}<br><br>
+        `
         
     } catch (error) {
         console.error('Analysis failed:', error);
         resultParagraph.innerHTML = "Error: " + error.message;
+        resultExtraInfo.innerHTML = "Error: " + error.message;
     }
 }
 
 // UI Elements
 const resultParagraph = document.createElement('span');
+resultParagraph.innerHTML = "Best Move (Press A to Toggle)";
+const resultExtraInfo = document.createElement('span');
+resultExtraInfo.innerHTML = "Move Info (Press Q to Toggle)";
+const smartGameEvaluation = document.createElement('span');
+smartGameEvaluation.innerHTML = "Game Analysis (Press W to Toggle)";
+
 resultParagraph.style.cssText = `
     position: fixed;
     bottom: 10px;
@@ -1863,19 +1976,76 @@ resultParagraph.style.cssText = `
     cursor: pointer;
     font-family: Arial, sans-serif;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    font-size: 15px !important;
-    opacity: 0.5;
+    font-size: 13px !important;
+    
 `;
 
+resultExtraInfo.style.cssText = `
+    max-width: 300px;
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 9999;
+    padding: 2px 5px;
+    background-color: #2f2f2f;
+    color: red;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: Arial, sans-serif;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    font-size: 13px !important;
+    overflow: auto;
+    max-height: 90%;
+`;
+
+smartGameEvaluation.style.cssText = `
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 9999;
+    padding: 2px 5px;
+    background-color: #2f2f2f;
+    color: red;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: Arial, sans-serif;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    font-size: 13px !important;
+    overflow: auto;
+    max-height: 90%;
+`;
+
+
+requestIdleCallback
 // Keyboard shortcuts
 document.addEventListener('keydown', (event) => {
-    if (event.key === 'c' || event.key === 'C') {
+    if (event.key === 'z' || event.key === 'Z') {
+        resultParagraph.innerHTML = "Loading...";
+        resultExtraInfo.innerHTML = "Loading...";
         analyzeMoveList();
     } else if (event.key === 'a' || event.key === 'A') {
         const isVisible = resultParagraph.style.display !== 'none';
         resultParagraph.style.display = isVisible ? 'none' : 'block';
+    } else if (event.key === 'q' || event.key === 'Q') {
+        const isVisible = resultExtraInfo.style.display !== 'none';
+        resultExtraInfo.style.display = isVisible ? 'none': 'block';
+    } else if (event.key === 'w' || event.key === 'W') {
+        const isVisible = smartGameEvaluation.style.display !== 'none';
+        smartGameEvaluation.style.display = isVisible ? 'none': 'block';
+    } else if (event.key === 'e' || event.key === 'E') {
+        const mlc = document.querySelector('.game-tab-scrollable');
+        if (!mlc) {
+            throw new Error('Move list not found');
+        }
+        smartGameEvaluation.innerHTML = "Loading...";
+        const moves = parseMoveList(mlc.innerHTML);
+        getFENFromMoves(moves, true);
     }
 });
 
 // Add UI elements to page
 document.body.appendChild(resultParagraph);
+document.body.appendChild(resultExtraInfo);
+document.body.appendChild(smartGameEvaluation);
